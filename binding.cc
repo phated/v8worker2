@@ -24,6 +24,7 @@ IN THE SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <map>
 
 #include "binding.h"
 #include "libplatform/libplatform.h"
@@ -38,6 +39,8 @@ struct worker_s {
   Persistent<Function> recv;
   Persistent<Context> context;
 };
+
+std::map<std::string, Persistent<Module>*> modules;
 
 // Extracts a C string from a V8 Utf8Value.
 const char* ToCString(const String::Utf8Value& value) {
@@ -187,6 +190,78 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   }
 
   Handle<Value> result = script->Run();
+
+  if (result.IsEmpty()) {
+    assert(try_catch.HasCaught());
+    w->last_exception = ExceptionString(w, &try_catch);
+    return 2;
+  }
+
+  return 0;
+}
+
+
+MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, Local<Module> referrer) {
+
+  String::Utf8Value str(name);
+  const char* moduleName = ToCString(str);
+
+  if (modules.count(moduleName) == 0) {
+    return MaybeLocal<Module>();
+  }
+
+  Isolate* isolate = context->GetIsolate();
+
+  return modules[moduleName]->Get(isolate);
+}
+
+int worker_load_module(worker* w, char* name_s, char* source_s) {
+  Locker locker(w->isolate);
+  Isolate::Scope isolate_scope(w->isolate);
+  HandleScope handle_scope(w->isolate);
+
+  Local<Context> context = Local<Context>::New(w->isolate, w->context);
+  Context::Scope context_scope(context);
+
+  TryCatch try_catch(w->isolate);
+
+  Local<String> name = String::NewFromUtf8(w->isolate, name_s);
+  Local<String> source_text = String::NewFromUtf8(w->isolate, source_s);
+
+  Local<Integer> line_offset = Integer::New(w->isolate, 0);
+  Local<Integer> column_offset = Integer::New(w->isolate, 0);
+  Local<Boolean> is_cross_origin = True(w->isolate);
+  Local<Integer> script_id = Local<Integer>();
+  Local<Value> source_map_url = Local<Value>();
+  Local<Boolean> is_opaque = False(w->isolate);
+  Local<Boolean> is_wasm = False(w->isolate);
+  Local<Boolean> is_module = True(w->isolate);
+
+  ScriptOrigin origin(name, line_offset, column_offset, is_cross_origin,
+                      script_id, source_map_url, is_opaque, is_wasm, is_module);
+
+  ScriptCompiler::Source source(source_text, origin);
+  Local<Module> module;
+
+  if (!ScriptCompiler::CompileModule(w->isolate, &source).ToLocal(&module)) {
+    assert(try_catch.HasCaught());
+    w->last_exception = ExceptionString(w, &try_catch);
+    return 1;
+  }
+
+  Persistent<Module> persModule;
+  persModule.Reset(w->isolate, module);
+  modules[name_s] = &persModule;
+
+  Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
+
+  if (!ok.FromMaybe(false)) {
+    assert(try_catch.HasCaught());
+    w->last_exception = ExceptionString(w, &try_catch);
+    return 2;
+  }
+
+  MaybeLocal<Value> result = module->Evaluate(context);
 
   if (result.IsEmpty()) {
     assert(try_catch.HasCaught());

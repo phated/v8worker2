@@ -217,6 +217,33 @@ func TestRequestFromJS(t *testing.T) {
 	}
 }
 
+func TestModules(t *testing.T) {
+	worker := New(func(msg []byte) []byte {
+		t.Fatal("shouldn't recieve Message")
+		return nil
+	})
+	err1 := worker.LoadModule("dependency.js", `export const test = "ready";`)
+	if err1 != nil {
+		t.Fatal(err1)
+	}
+	err2 := worker.LoadModule("code.js", `import { test } from "dependency.js"; V8Worker2.print(test);`)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+}
+
+func TestModulesMissingDependency(t *testing.T) {
+	// I believe this SIGABRTs currently
+	worker := New(func(msg []byte) []byte {
+		t.Fatal("shouldn't recieve Message")
+		return nil
+	})
+	err := worker.LoadModule("code.js", `import { test } from "missing.js"; V8Worker2.print(test);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Test breaking script execution
 func TestWorkerBreaking(t *testing.T) {
 	worker := New(func(msg []byte) []byte {

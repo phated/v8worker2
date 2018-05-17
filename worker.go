@@ -185,6 +185,23 @@ func (w *Worker) Load(scriptName string, code string) error {
 	return nil
 }
 
+// LoadModule loads and executes a javascript module with filename specified by
+// scriptName and the contents of the module specified by the param code.
+// All `import` dependencies must be loaded before a script otherwise it will error.
+func (w *Worker) LoadModule(scriptName string, code string) error {
+	scriptName_s := C.CString(scriptName)
+	code_s := C.CString(code)
+	defer C.free(unsafe.Pointer(scriptName_s))
+	defer C.free(unsafe.Pointer(code_s))
+
+	r := C.worker_load_module(w.worker.cWorker, scriptName_s, code_s)
+	if r != 0 {
+		errStr := C.GoString(C.worker_last_exception(w.worker.cWorker))
+		return errors.New(errStr)
+	}
+	return nil
+}
+
 // Same as Send but for []byte. $recv callback will get an ArrayBuffer.
 func (w *Worker) SendBytes(msg []byte) error {
 	msg_p := C.CBytes(msg)
