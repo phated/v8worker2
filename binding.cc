@@ -38,7 +38,7 @@ struct worker_s {
   std::string last_exception;
   Persistent<Function> recv;
   Persistent<Context> context;
-  std::map<std::string, Persistent<Module>*> modules;
+  std::map<std::string, Eternal<Module>> modules;
 };
 
 // Extracts a C string from a V8 Utf8Value.
@@ -103,7 +103,7 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, L
     return MaybeLocal<Module>();
   }
 
-  return w->modules[moduleName]->Get(isolate);
+  return w->modules[moduleName].Get(isolate);
 }
 
 // Exception details will be appended to the first argument.
@@ -247,9 +247,8 @@ int worker_load_module(worker* w, char* name_s, char* source_s) {
     return 1;
   }
 
-  Persistent<Module> persModule(w->isolate, module);
-  w->modules[name_s] = &persModule;
-  // persModule.Reset(w->isolate, module);
+  Eternal<Module> persModule(w->isolate, module);
+  w->modules[name_s] = persModule;
 
   Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
 
