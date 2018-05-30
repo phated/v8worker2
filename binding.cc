@@ -92,7 +92,9 @@ void ExitOnPromiseRejectCallback(PromiseRejectMessage promise_reject_message) {
   exit(1);
 }
 
-MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, Local<Module> referrer) {
+MaybeLocal<Module> ResolveCallback(Local<Context> context,
+                                   Local<String> name,
+                                   Local<Module> referrer) {
   auto isolate = Isolate::GetCurrent();
   worker* w = (worker*)isolate->GetData(0);
 
