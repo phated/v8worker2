@@ -93,6 +93,20 @@ void ExitOnPromiseRejectCallback(PromiseRejectMessage promise_reject_message) {
   exit(1);
 }
 
+MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, Local<Module> referrer) {
+
+  String::Utf8Value str(name);
+  const char* moduleName = ToCString(str);
+
+  if (modules.count(moduleName) == 0) {
+    return MaybeLocal<Module>();
+  }
+
+  Isolate* isolate = context->GetIsolate();
+
+  return modules[moduleName]->Get(isolate);
+}
+
 // Exception details will be appended to the first argument.
 std::string ExceptionString(worker* w, TryCatch* try_catch) {
   std::string out;
@@ -198,21 +212,6 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   }
 
   return 0;
-}
-
-
-MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, Local<Module> referrer) {
-
-  String::Utf8Value str(name);
-  const char* moduleName = ToCString(str);
-
-  if (modules.count(moduleName) == 0) {
-    return MaybeLocal<Module>();
-  }
-
-  Isolate* isolate = context->GetIsolate();
-
-  return modules[moduleName]->Get(isolate);
 }
 
 int worker_load_module(worker* w, char* name_s, char* source_s) {
