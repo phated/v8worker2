@@ -239,9 +239,7 @@ func TestModulesMissingDependency(t *testing.T) {
 		return nil
 	})
 	err := worker.LoadModule("code.js", `import { test } from "missing.js"; V8Worker2.print(test);`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	errorContains(t, err, "missing.js")
 }
 
 // Test breaking script execution

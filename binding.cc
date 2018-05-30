@@ -100,6 +100,12 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, L
   const char* moduleName = ToCString(str);
 
   if (w->modules.count(moduleName) == 0) {
+    std::string out;
+    out.append("Module (");
+    out.append(moduleName);
+    out.append(") has not been loaded");
+    out.append("\n");
+    w->last_exception = out;
     return MaybeLocal<Module>();
   }
 
@@ -253,8 +259,11 @@ int worker_load_module(worker* w, char* name_s, char* source_s) {
   Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
 
   if (!ok.FromMaybe(false)) {
-    assert(try_catch.HasCaught());
-    w->last_exception = ExceptionString(w, &try_catch);
+    // TODO: I'm not sure if this is needed
+    if (try_catch.HasCaught()) {
+      assert(try_catch.HasCaught());
+      w->last_exception = ExceptionString(w, &try_catch);
+    }
     return 2;
   }
 
