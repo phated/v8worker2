@@ -38,9 +38,8 @@ struct worker_s {
   std::string last_exception;
   Persistent<Function> recv;
   Persistent<Context> context;
+  std::map<std::string, Persistent<Module>*> modules;
 };
-
-std::map<std::string, Persistent<Module>*> modules;
 
 // Extracts a C string from a V8 Utf8Value.
 const char* ToCString(const String::Utf8Value& value) {
@@ -94,17 +93,17 @@ void ExitOnPromiseRejectCallback(PromiseRejectMessage promise_reject_message) {
 }
 
 MaybeLocal<Module> ResolveCallback(Local<Context> context, Local<String> name, Local<Module> referrer) {
+  auto isolate = Isolate::GetCurrent();
+  worker* w = (worker*)isolate->GetData(0);
 
   String::Utf8Value str(name);
   const char* moduleName = ToCString(str);
 
-  if (modules.count(moduleName) == 0) {
+  if (w->modules.count(moduleName) == 0) {
     return MaybeLocal<Module>();
   }
 
-  Isolate* isolate = context->GetIsolate();
-
-  return modules[moduleName]->Get(isolate);
+  return w->modules[moduleName]->Get(isolate);
 }
 
 // Exception details will be appended to the first argument.
@@ -248,9 +247,9 @@ int worker_load_module(worker* w, char* name_s, char* source_s) {
     return 1;
   }
 
-  Persistent<Module> persModule;
-  persModule.Reset(w->isolate, module);
-  modules[name_s] = &persModule;
+  Persistent<Module> persModule(w->isolate, module);
+  w->modules[name_s] = &persModule;
+  // persModule.Reset(w->isolate, module);
 
   Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
 
