@@ -93,12 +93,14 @@ void ExitOnPromiseRejectCallback(PromiseRejectMessage promise_reject_message) {
 }
 
 MaybeLocal<Module> ResolveCallback(Local<Context> context,
-                                   Local<String> name,
+                                   Local<String> specifier,
                                    Local<Module> referrer) {
   auto isolate = Isolate::GetCurrent();
   worker* w = (worker*)isolate->GetData(0);
 
-  String::Utf8Value str(name);
+  HandleScope handle_scope(isolate);
+
+  String::Utf8Value str(specifier);
   const char* moduleName = ToCString(str);
 
   if (w->modules.count(moduleName) == 0) {
