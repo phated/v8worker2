@@ -222,18 +222,16 @@ func TestModules(t *testing.T) {
 		t.Fatal("shouldn't recieve Message")
 		return nil
 	})
-	exportCode := `
+	err1 := worker.LoadModule("dependency.js", `
 		export const test = "ready";
-	`
-	err1 := worker.LoadModule("dependency.js", exportCode)
+	`)
 	if err1 != nil {
 		t.Fatal(err1)
 	}
-	importCode := `
+	err2 := worker.LoadModule("code.js", `
 		import { test } from "dependency.js";
 		V8Worker2.print(test);
-	`
-	err2 := worker.LoadModule("code.js", importCode)
+	`)
 	if err2 != nil {
 		t.Fatal(err2)
 	}
@@ -244,11 +242,10 @@ func TestModulesMissingDependency(t *testing.T) {
 		t.Fatal("shouldn't recieve Message")
 		return nil
 	})
-	importCode := `
+	err := worker.LoadModule("code.js", `
 		import { test } from "missing.js";
 		V8Worker2.print(test);
-	`
-	err := worker.LoadModule("code.js", importCode)
+	`)
 	errorContains(t, err, "missing.js")
 }
 
