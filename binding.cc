@@ -29,6 +29,7 @@ IN THE SOFTWARE.
 #include "binding.h"
 #include "libplatform/libplatform.h"
 #include "v8.h"
+#include "_cgo_export.h"
 
 using namespace v8;
 
@@ -101,7 +102,18 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context,
   HandleScope handle_scope(isolate);
 
   String::Utf8Value str(specifier);
-  const char* moduleName = ToCString(str);
+  char* moduleName = *str;
+
+  auto ret = moduleCb(moduleName, w->table_index);
+  if (ret != 0) {
+    std::string out;
+    out.append("Unable to resolve module (");
+    out.append(moduleName);
+    out.append(")");
+    out.append("\n");
+    w->last_exception = out;
+    return MaybeLocal<Module>();
+  }
 
   if (w->modules.count(moduleName) == 0) {
     std::string out;
@@ -177,7 +189,6 @@ std::string ExceptionString(worker* w, TryCatch* try_catch) {
 }
 
 extern "C" {
-#include "_cgo_export.h"
 
 const char* worker_version() { return V8::GetVersion(); }
 

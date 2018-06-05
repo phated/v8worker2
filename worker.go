@@ -48,15 +48,19 @@ var workerTableNextAvailable workerTableIndex = 0
 // To receive messages from javascript.
 type ReceiveMessageCallback func(msg []byte) []byte
 
+// To resolve modules from javascript.
+type ModuleResolverCallback func(msg string) int
+
 // Don't init V8 more than once.
 var initV8Once sync.Once
 
 // Internal worker struct which is stored in the workerTable.
 // Weak-ref pattern https://groups.google.com/forum/#!topic/golang-nuts/1ItNOOj8yW8/discussion
 type worker struct {
-	cWorker    *C.worker
-	cb         ReceiveMessageCallback
-	tableIndex workerTableIndex
+	cWorker       *C.worker
+	cb            ReceiveMessageCallback
+	resolveModule ModuleResolverCallback
+	tableIndex    workerTableIndex
 }
 
 // This is a golang wrapper around a single V8 Isolate.
@@ -125,6 +129,17 @@ func recvCb(buf unsafe.Pointer, buflen C.int, index workerTableIndex) C.buf {
 	}
 }
 
+//export moduleCb
+func moduleCb(moduleSpecifier *C.char, index workerTableIndex) C.int {
+	specifier := C.GoString(moduleSpecifier)
+	w := workerTableLookup(index)
+	if w.resolveModule == nil {
+		return C.int(1)
+	}
+	ret := w.resolveModule(specifier)
+	return C.int(ret)
+}
+
 // Creates a new worker, which corresponds to a V8 isolate. A single threaded
 // standalone execution context.
 func New(cb ReceiveMessageCallback) *Worker {
@@ -167,6 +182,10 @@ func (w *Worker) Dispose() {
 	delete(workerTable, internalWorker.tableIndex)
 	workerTableLock.Unlock()
 	C.worker_dispose(internalWorker.cWorker)
+}
+
+func (w *Worker) SetModuleResolver(cb ModuleResolverCallback) {
+	w.resolveModule = cb
 }
 
 // Load and executes a javascript file with the filename specified by
