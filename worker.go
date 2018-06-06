@@ -49,7 +49,7 @@ var workerTableNextAvailable workerTableIndex = 0
 type ReceiveMessageCallback func(msg []byte) []byte
 
 // To resolve modules from javascript.
-type ModuleResolverCallback func(msg string) int
+type ModuleResolverCallback func(moduleName, referrerName string) int
 
 // Don't init V8 more than once.
 var initV8Once sync.Once
@@ -130,13 +130,14 @@ func recvCb(buf unsafe.Pointer, buflen C.int, index workerTableIndex) C.buf {
 }
 
 //export moduleCb
-func moduleCb(moduleSpecifier *C.char, index workerTableIndex) C.int {
-	specifier := C.GoString(moduleSpecifier)
+func moduleCb(moduleSpecifier *C.char, referrerSpecifier *C.char, index workerTableIndex) C.int {
+	moduleName := C.GoString(moduleSpecifier)
+	referrerName := C.GoString(referrerSpecifier)
 	w := workerTableLookup(index)
 	if w.resolveModule == nil {
 		return C.int(1)
 	}
-	ret := w.resolveModule(specifier)
+	ret := w.resolveModule(moduleName, referrerName)
 	return C.int(ret)
 }
 

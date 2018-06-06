@@ -40,6 +40,7 @@ struct worker_s {
   Persistent<Function> recv;
   Persistent<Context> context;
   std::map<std::string, Eternal<Module>> modules;
+  std::map<int, char*> identifiers;
 };
 
 // Extracts a C string from a V8 Utf8Value.
@@ -104,7 +105,14 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context,
   String::Utf8Value str(specifier);
   char* moduleName = *str;
 
-  auto ret = moduleCb(moduleName, w->table_index);
+  int identityHash = referrer->GetIdentityHash();
+  char* referrerName = w->identifiers[identityHash];
+
+  if (w->modules.count(moduleName) != 0) {
+    return w->modules[moduleName].Get(isolate);
+  }
+
+  auto ret = moduleCb(moduleName, referrerName, w->table_index);
   if (ret != 0) {
     std::string out;
     out.append("Unable to resolve module (");
@@ -270,6 +278,8 @@ int worker_load_module(worker* w, char* name_s, char* source_s) {
 
   Eternal<Module> persModule(w->isolate, module);
   w->modules[name_s] = persModule;
+  int identityHash = module->GetIdentityHash();
+  w->identifiers[identityHash] = name_s;
 
   Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
 
