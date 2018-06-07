@@ -38,6 +38,11 @@ type workerTableIndex int
 
 var workerTableLock sync.Mutex
 
+// These are used for handling ModuleResolverCallbacks per LoadModule invocation
+var resolverTableLock sync.Mutex
+var resolverToken int
+var resolverFuncs = make(map[int]ModuleResolverCallback)
+
 // This table will store all pointers to all active workers. Because we can't safely
 // pass pointers to Go objects to C, we instead pass a key to this table.
 var workerTable = make(map[workerTableIndex]*worker)
@@ -57,10 +62,9 @@ var initV8Once sync.Once
 // Internal worker struct which is stored in the workerTable.
 // Weak-ref pattern https://groups.google.com/forum/#!topic/golang-nuts/1ItNOOj8yW8/discussion
 type worker struct {
-	cWorker       *C.worker
-	cb            ReceiveMessageCallback
-	resolveModule ModuleResolverCallback
-	tableIndex    workerTableIndex
+	cWorker    *C.worker
+	cb         ReceiveMessageCallback
+	tableIndex workerTableIndex
 }
 
 // This is a golang wrapper around a single V8 Isolate.
@@ -129,15 +133,20 @@ func recvCb(buf unsafe.Pointer, buflen C.int, index workerTableIndex) C.buf {
 	}
 }
 
-//export moduleCb
-func moduleCb(moduleSpecifier *C.char, referrerSpecifier *C.char, index workerTableIndex) C.int {
+//export resolveModule
+func resolveModule(moduleSpecifier *C.char, referrerSpecifier *C.char, resolverToken int) C.int {
 	moduleName := C.GoString(moduleSpecifier)
+	// TODO: Remove this when I'm not dealing with Node resolution anymore
 	referrerName := C.GoString(referrerSpecifier)
-	w := workerTableLookup(index)
-	if w.resolveModule == nil {
+
+	resolverTableLock.Lock()
+	resolve := resolverFuncs[resolverToken]
+	resolverTableLock.Unlock()
+
+	if resolve == nil {
 		return C.int(1)
 	}
-	ret := w.resolveModule(moduleName, referrerName)
+	ret := resolve(moduleName, referrerName)
 	return C.int(ret)
 }
 
@@ -185,10 +194,6 @@ func (w *Worker) Dispose() {
 	C.worker_dispose(internalWorker.cWorker)
 }
 
-func (w *Worker) SetModuleResolver(cb ModuleResolverCallback) {
-	w.resolveModule = cb
-}
-
 // Load and executes a javascript file with the filename specified by
 // scriptName and the contents of the file specified by the param code.
 func (w *Worker) Load(scriptName string, code string) error {
@@ -208,13 +213,27 @@ func (w *Worker) Load(scriptName string, code string) error {
 // LoadModule loads and executes a javascript module with filename specified by
 // scriptName and the contents of the module specified by the param code.
 // All `import` dependencies must be loaded before a script otherwise it will error.
-func (w *Worker) LoadModule(scriptName string, code string) error {
+func (w *Worker) LoadModule(scriptName string, code string, resolve ModuleResolverCallback) error {
 	scriptName_s := C.CString(scriptName)
 	code_s := C.CString(code)
 	defer C.free(unsafe.Pointer(scriptName_s))
 	defer C.free(unsafe.Pointer(code_s))
 
-	r := C.worker_load_module(w.worker.cWorker, scriptName_s, code_s)
+	// Register the callback before we attempt to load a module
+	resolverTableLock.Lock()
+	resolverToken++
+	token := resolverToken
+	resolverFuncs[token] = resolve
+	resolverTableLock.Unlock()
+	resolverToken_i := C.int(resolverToken)
+
+	r := C.worker_load_module(w.worker.cWorker, scriptName_s, code_s, resolverToken_i)
+
+	// Unregister the callback after the module is loaded
+	resolverTableLock.Lock()
+	delete(resolverFuncs, token)
+	resolverTableLock.Unlock()
+
 	if r != 0 {
 		errStr := C.GoString(C.worker_last_exception(w.worker.cWorker))
 		return errors.New(errStr)

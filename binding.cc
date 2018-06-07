@@ -103,25 +103,7 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context,
   HandleScope handle_scope(isolate);
 
   String::Utf8Value str(specifier);
-  char* moduleName = *str;
-
-  int identityHash = referrer->GetIdentityHash();
-  char* referrerName = w->identifiers[identityHash];
-
-  if (w->modules.count(moduleName) != 0) {
-    return w->modules[moduleName].Get(isolate);
-  }
-
-  auto ret = moduleCb(moduleName, referrerName, w->table_index);
-  if (ret != 0) {
-    std::string out;
-    out.append("Unable to resolve module (");
-    out.append(moduleName);
-    out.append(")");
-    out.append("\n");
-    w->last_exception = out;
-    return MaybeLocal<Module>();
-  }
+  const char* moduleName = *str;
 
   if (w->modules.count(moduleName) == 0) {
     std::string out;
@@ -242,7 +224,7 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   return 0;
 }
 
-int worker_load_module(worker* w, char* name_s, char* source_s) {
+int worker_load_module(worker* w, char* name_s, char* source_s, int callback_index) {
   Locker locker(w->isolate);
   Isolate::Scope isolate_scope(w->isolate);
   HandleScope handle_scope(w->isolate);
@@ -276,10 +258,15 @@ int worker_load_module(worker* w, char* name_s, char* source_s) {
     return 1;
   }
 
+  for (int i = 0; i < module->GetModuleRequestsLength(); i++) {
+    Local<String> dependency = module->GetModuleRequest(i);
+    String::Utf8Value str(dependency);
+    char* dependencySpecifier = *str;
+    resolveModule(dependencySpecifier, name_s, callback_index);
+  }
+
   Eternal<Module> persModule(w->isolate, module);
   w->modules[name_s] = persModule;
-  int identityHash = module->GetIdentityHash();
-  w->identifiers[identityHash] = name_s;
 
   Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
 
