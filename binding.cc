@@ -262,7 +262,16 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
     Local<String> dependency = module->GetModuleRequest(i);
     String::Utf8Value str(dependency);
     char* dependencySpecifier = *str;
-    resolveModule(dependencySpecifier, name_s, callback_index);
+    int ret = resolveModule(dependencySpecifier, name_s, callback_index);
+    if (ret != 0) {
+      std::string out;
+      out.append("Module (");
+      out.append(dependencySpecifier);
+      out.append(") has not been loaded");
+      out.append("\n");
+      w->last_exception = out;
+      return ret;
+    }
   }
 
   Eternal<Module> persModule(w->isolate, module);
