@@ -40,7 +40,6 @@ struct worker_s {
   Persistent<Function> recv;
   Persistent<Context> context;
   std::map<std::string, Eternal<Module>> modules;
-  std::map<int, char*> identifiers;
 };
 
 // Extracts a C string from a V8 Utf8Value.
@@ -262,6 +261,14 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
     Local<String> dependency = module->GetModuleRequest(i);
     String::Utf8Value str(dependency);
     char* dependencySpecifier = *str;
+
+    // If we've already loaded the module, skip resolving it.
+    // TODO: Is there ever a time when the specifier would be the same
+    // but would need to be resolved again?
+    if (w->modules.count(dependencySpecifier) != 0) {
+      continue;
+    }
+
     int ret = resolveModule(dependencySpecifier, name_s, callback_index);
     if (ret != 0) {
       // TODO: Use module->GetModuleRequestLocation() to get source locations
