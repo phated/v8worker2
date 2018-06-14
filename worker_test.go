@@ -226,11 +226,14 @@ func TestModules(t *testing.T) {
 	})
 	err2 := worker.LoadModule("code.js", `
 		import { test } from "dependency.js";
-		import { print } from "internal.js";
+		import { print } from "core:internal.js";
+
 		print(test);
-		V8Worker2.print("global fucked");
+
+		if (typeof V8Worker2 != "undefined") {
+			throw new Error('Global should not exist');
+		}
 	`, func(specifier string, referrer string) int {
-		// log.Println(specifier)
 		if specifier == "internal.js" {
 			return 0
 		}
@@ -265,7 +268,7 @@ func TestModulesMissingDependency(t *testing.T) {
 	})
 	err := worker.LoadModule("code.js", `
 		import { test } from "missing.js";
-		V8Worker2.print(test);
+		throw new Error('Should not reach here');
 	`, func(specifier string, referrer string) int {
 		if specifier != "missing.js" {
 			t.Fatal(`Expected "missing.js" specifier`)
@@ -273,6 +276,24 @@ func TestModulesMissingDependency(t *testing.T) {
 		return 1
 	})
 	errorContains(t, err, "missing.js")
+}
+
+func TestUnpriviledgedModule(t *testing.T) {
+	worker := New(func(msg []byte) []byte {
+		t.Fatal("shouldn't recieve Message")
+		return nil
+	})
+	err := worker.LoadModule("code.js", `
+		import { print } from "core:internal.js";
+		throw new Error("Should not reach here");
+	`, func(specifier string, referrer string) int {
+		if specifier != "core:internal.js" {
+			t.Fatal(`Expected "core:internal.js" specifier`)
+		}
+		return 1
+	})
+	log.Println(err)
+	errorContains(t, err, "core:internal.js")
 }
 
 // Test breaking script execution

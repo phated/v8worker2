@@ -188,24 +188,22 @@ void Send(const FunctionCallbackInfo<Value>& args) {
   }
 }
 
-Local<Context> GlobalContext(worker* w) {
-  Local<ObjectTemplate> global = ObjectTemplate::New(w->isolate);
-  Local<ObjectTemplate> v8worker2 = ObjectTemplate::New(w->isolate);
+Local<Context> GlobalContext(Isolate* isolate) {
+  Local<ObjectTemplate> global = ObjectTemplate::New(isolate);
+  Local<ObjectTemplate> v8worker2 = ObjectTemplate::New(isolate);
 
-  global->Set(String::NewFromUtf8(w->isolate, "V8Worker2"), v8worker2);
+  global->Set(String::NewFromUtf8(isolate, "V8Worker2"), v8worker2);
 
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "print"),
-                 FunctionTemplate::New(w->isolate, Print));
+  v8worker2->Set(String::NewFromUtf8(isolate, "print"),
+                 FunctionTemplate::New(isolate, Print));
 
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "recv"),
-                 FunctionTemplate::New(w->isolate, Recv));
+  v8worker2->Set(String::NewFromUtf8(isolate, "recv"),
+                 FunctionTemplate::New(isolate, Recv));
 
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "send"),
-                 FunctionTemplate::New(w->isolate, Send));
+  v8worker2->Set(String::NewFromUtf8(isolate, "send"),
+                 FunctionTemplate::New(isolate, Send));
 
-  Local<Context> context = Context::New(w->isolate, NULL, global);
-  // w->context.Reset(w->isolate, context);
-  context->Enter();
+  Local<Context> context = Context::New(isolate, NULL, global);
 
   return context;
 }
@@ -287,7 +285,7 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   Isolate::Scope isolate_scope(w->isolate);
   HandleScope handle_scope(w->isolate);
 
-  Local<Context> context = GlobalContext(w);
+  Local<Context> context = GlobalContext(w->isolate);
   Context::Scope context_scope(context);
 
   TryCatch try_catch(w->isolate);
@@ -296,6 +294,8 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   Local<String> source = String::NewFromUtf8(w->isolate, source_s);
 
   ScriptOrigin origin(name);
+
+  context->Enter();
 
   Local<Script> script = Script::Compile(source, &origin);
 
@@ -312,6 +312,8 @@ int worker_load(worker* w, char* name_s, char* source_s) {
     w->last_exception = ExceptionString(w, &try_catch);
     return 2;
   }
+
+  context->Exit();
 
   return 0;
 }
@@ -444,7 +446,7 @@ int make_core_module(worker* w, const char* name_s, const char* source_s) {
   Isolate::Scope isolate_scope(w->isolate);
   HandleScope handle_scope(w->isolate);
 
-  Local<Context> context = GlobalContext(w);
+  Local<Context> context = GlobalContext(w->isolate);
   Context::Scope context_scope(context);
 
   TryCatch try_catch(w->isolate);
@@ -466,6 +468,8 @@ int make_core_module(worker* w, const char* name_s, const char* source_s) {
 
   ScriptCompiler::Source source(source_text, origin);
   Local<Module> module;
+
+  context->Enter();
 
   if (!ScriptCompiler::CompileModule(w->isolate, &source).ToLocal(&module)) {
     assert(try_catch.HasCaught());
@@ -496,7 +500,6 @@ int make_core_module(worker* w, const char* name_s, const char* source_s) {
   }
 
   context->Exit();
-  // w->context.Reset(w->isolate, context);
 
   return 0;
 }
@@ -523,7 +526,11 @@ worker* worker_new(int table_index) {
   w->isolate->SetData(0, w);
   w->table_index = table_index;
 
-  std::string name = "internal.js";
+  Local<Context> context = Context::New(w->isolate);
+  w->context.Reset(w->isolate, context);
+  context->Enter();
+
+  std::string name = "core:internal.js";
   const char *name_s = name.c_str();
   std::string source = "const { print, send, recv } = V8Worker2; export { print, send, recv };";
   const char *source_s = source.c_str();
