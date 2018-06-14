@@ -40,7 +40,7 @@ var workerTableLock sync.Mutex
 
 // These are used for handling ModuleResolverCallbacks per LoadModule invocation
 var resolverTableLock sync.Mutex
-var resolverToken int
+var nextResolverToken int
 var resolverFuncs = make(map[int]ModuleResolverCallback)
 
 // This table will store all pointers to all active workers. Because we can't safely
@@ -133,8 +133,8 @@ func recvCb(buf unsafe.Pointer, buflen C.int, index workerTableIndex) C.buf {
 	}
 }
 
-//export resolveModule
-func resolveModule(moduleSpecifier *C.char, referrerSpecifier *C.char, resolverToken int) C.int {
+//export ResolveModule
+func ResolveModule(moduleSpecifier *C.char, referrerSpecifier *C.char, resolverToken int) C.int {
 	moduleName := C.GoString(moduleSpecifier)
 	// TODO: Remove this when I'm not dealing with Node resolution anymore
 	referrerName := C.GoString(referrerSpecifier)
@@ -221,13 +221,13 @@ func (w *Worker) LoadModule(scriptName string, code string, resolve ModuleResolv
 
 	// Register the callback before we attempt to load a module
 	resolverTableLock.Lock()
-	resolverToken++
-	token := resolverToken
+	nextResolverToken++
+	token := nextResolverToken
 	resolverFuncs[token] = resolve
 	resolverTableLock.Unlock()
-	resolverToken_i := C.int(resolverToken)
+	token_i := C.int(token)
 
-	r := C.worker_load_module(w.worker.cWorker, scriptName_s, code_s, resolverToken_i)
+	r := C.worker_load_module(w.worker.cWorker, scriptName_s, code_s, token_i)
 
 	// Unregister the callback after the module is loaded
 	resolverTableLock.Lock()

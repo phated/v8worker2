@@ -269,7 +269,7 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
       continue;
     }
 
-    int ret = resolveModule(dependencySpecifier, name_s, callback_index);
+    int ret = ResolveModule(dependencySpecifier, name_s, callback_index);
     if (ret != 0) {
       // TODO: Use module->GetModuleRequestLocation() to get source locations
       std::string out;

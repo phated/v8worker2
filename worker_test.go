@@ -226,9 +226,12 @@ func TestModules(t *testing.T) {
 	err2 := worker.LoadModule("code.js", `
 		import { test } from "dependency.js";
 		V8Worker2.print(test);
-	`, func(specifier, referrer string) int {
+	`, func(specifier string, referrer string) int {
 		if specifier != "dependency.js" {
 			t.Fatal(`Expected "dependency.js" specifier`)
+		}
+		if referrer != "code.js" {
+			t.Fatal(`Expected "code.js" referrer`)
 		}
 		err1 := worker.LoadModule("dependency.js", `
 			export const test = "ready";
@@ -254,7 +257,7 @@ func TestModulesMissingDependency(t *testing.T) {
 	err := worker.LoadModule("code.js", `
 		import { test } from "missing.js";
 		V8Worker2.print(test);
-	`, func(specifier, referrer string) int {
+	`, func(specifier string, referrer string) int {
 		if specifier != "missing.js" {
 			t.Fatal(`Expected "missing.js" specifier`)
 		}
