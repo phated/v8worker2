@@ -117,6 +117,99 @@ MaybeLocal<Module> ResolveCallback(Local<Context> context,
   return w->modules[moduleName].Get(isolate);
 }
 
+
+void Print(const FunctionCallbackInfo<Value>& args) {
+  bool first = true;
+  for (int i = 0; i < args.Length(); i++) {
+    HandleScope handle_scope(args.GetIsolate());
+    if (first) {
+      first = false;
+    } else {
+      printf(" ");
+    }
+    String::Utf8Value str(args[i]);
+    const char* cstr = ToCString(str);
+    printf("%s", cstr);
+  }
+  printf("\n");
+  fflush(stdout);
+}
+
+// Sets the recv callback.
+void Recv(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  worker* w = (worker*)isolate->GetData(0);
+  assert(w->isolate == isolate);
+
+  HandleScope handle_scope(isolate);
+
+  auto context = w->context.Get(w->isolate);
+
+  Local<Value> v = args[0];
+  assert(v->IsFunction());
+  Local<Function> func = Local<Function>::Cast(v);
+
+  w->recv.Reset(isolate, func);
+}
+
+// Called from JavaScript, routes message to golang.
+void Send(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  worker* w = static_cast<worker*>(isolate->GetData(0));
+  assert(w->isolate == isolate);
+
+  Locker locker(w->isolate);
+  EscapableHandleScope handle_scope(isolate);
+
+  auto context = w->context.Get(w->isolate);
+
+  Local<Value> v = args[0];
+  assert(v->IsArrayBuffer());
+
+  auto ab = Local<ArrayBuffer>::Cast(v);
+  auto contents = ab->GetContents();
+
+  void* buf = contents.Data();
+  int buflen = static_cast<int>(contents.ByteLength());
+
+  auto retbuf = recvCb(buf, buflen, w->table_index);
+  if (retbuf.data) {
+    auto ab = ArrayBuffer::New(w->isolate, retbuf.data, retbuf.len,
+                               ArrayBufferCreationMode::kInternalized);
+    /*
+    // I'm slightly worried the above ArrayBuffer construction leaks memory
+    // the following might be a safer way to do it.
+    auto ab = ArrayBuffer::New(w->isolate, retbuf.len);
+    auto contents = ab->GetContents();
+    memcpy(contents.Data(), retbuf.data, retbuf.len);
+    free(retbuf.data);
+    */
+    args.GetReturnValue().Set(handle_scope.Escape(ab));
+  }
+}
+
+Local<Context> GlobalContext(worker* w) {
+  Local<ObjectTemplate> global = ObjectTemplate::New(w->isolate);
+  Local<ObjectTemplate> v8worker2 = ObjectTemplate::New(w->isolate);
+
+  global->Set(String::NewFromUtf8(w->isolate, "V8Worker2"), v8worker2);
+
+  v8worker2->Set(String::NewFromUtf8(w->isolate, "print"),
+                 FunctionTemplate::New(w->isolate, Print));
+
+  v8worker2->Set(String::NewFromUtf8(w->isolate, "recv"),
+                 FunctionTemplate::New(w->isolate, Recv));
+
+  v8worker2->Set(String::NewFromUtf8(w->isolate, "send"),
+                 FunctionTemplate::New(w->isolate, Send));
+
+  Local<Context> context = Context::New(w->isolate, NULL, global);
+  // w->context.Reset(w->isolate, context);
+  context->Enter();
+
+  return context;
+}
+
 // Exception details will be appended to the first argument.
 std::string ExceptionString(worker* w, TryCatch* try_catch) {
   std::string out;
@@ -194,7 +287,7 @@ int worker_load(worker* w, char* name_s, char* source_s) {
   Isolate::Scope isolate_scope(w->isolate);
   HandleScope handle_scope(w->isolate);
 
-  Local<Context> context = Local<Context>::New(w->isolate, w->context);
+  Local<Context> context = GlobalContext(w);
   Context::Scope context_scope(context);
 
   TryCatch try_catch(w->isolate);
@@ -307,76 +400,6 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
   return 0;
 }
 
-void Print(const FunctionCallbackInfo<Value>& args) {
-  bool first = true;
-  for (int i = 0; i < args.Length(); i++) {
-    HandleScope handle_scope(args.GetIsolate());
-    if (first) {
-      first = false;
-    } else {
-      printf(" ");
-    }
-    String::Utf8Value str(args[i]);
-    const char* cstr = ToCString(str);
-    printf("%s", cstr);
-  }
-  printf("\n");
-  fflush(stdout);
-}
-
-// Sets the recv callback.
-void Recv(const FunctionCallbackInfo<Value>& args) {
-  Isolate* isolate = args.GetIsolate();
-  worker* w = (worker*)isolate->GetData(0);
-  assert(w->isolate == isolate);
-
-  HandleScope handle_scope(isolate);
-
-  auto context = w->context.Get(w->isolate);
-
-  Local<Value> v = args[0];
-  assert(v->IsFunction());
-  Local<Function> func = Local<Function>::Cast(v);
-
-  w->recv.Reset(isolate, func);
-}
-
-// Called from JavaScript, routes message to golang.
-void Send(const FunctionCallbackInfo<Value>& args) {
-  Isolate* isolate = args.GetIsolate();
-  worker* w = static_cast<worker*>(isolate->GetData(0));
-  assert(w->isolate == isolate);
-
-  Locker locker(w->isolate);
-  EscapableHandleScope handle_scope(isolate);
-
-  auto context = w->context.Get(w->isolate);
-
-  Local<Value> v = args[0];
-  assert(v->IsArrayBuffer());
-
-  auto ab = Local<ArrayBuffer>::Cast(v);
-  auto contents = ab->GetContents();
-
-  void* buf = contents.Data();
-  int buflen = static_cast<int>(contents.ByteLength());
-
-  auto retbuf = recvCb(buf, buflen, w->table_index);
-  if (retbuf.data) {
-    auto ab = ArrayBuffer::New(w->isolate, retbuf.data, retbuf.len,
-                               ArrayBufferCreationMode::kInternalized);
-    /*
-    // I'm slightly worried the above ArrayBuffer construction leaks memory
-    // the following might be a safer way to do it.
-    auto ab = ArrayBuffer::New(w->isolate, retbuf.len);
-    auto contents = ab->GetContents();
-    memcpy(contents.Data(), retbuf.data, retbuf.len);
-    free(retbuf.data);
-    */
-    args.GetReturnValue().Set(handle_scope.Escape(ab));
-  }
-}
-
 // Called from golang. Must route message to javascript lang.
 // non-zero return value indicates error. check worker_last_exception().
 int worker_send_bytes(worker* w, void* data, size_t len) {
@@ -416,6 +439,68 @@ void v8_init() {
   V8::Initialize();
 }
 
+int make_core_module(worker* w, const char* name_s, const char* source_s) {
+  Locker locker(w->isolate);
+  Isolate::Scope isolate_scope(w->isolate);
+  HandleScope handle_scope(w->isolate);
+
+  Local<Context> context = GlobalContext(w);
+  Context::Scope context_scope(context);
+
+  TryCatch try_catch(w->isolate);
+
+  Local<String> name = String::NewFromUtf8(w->isolate, name_s);
+  Local<String> source_text = String::NewFromUtf8(w->isolate, source_s);
+
+  Local<Integer> line_offset = Integer::New(w->isolate, 0);
+  Local<Integer> column_offset = Integer::New(w->isolate, 0);
+  Local<Boolean> is_cross_origin = True(w->isolate);
+  Local<Integer> script_id = Local<Integer>();
+  Local<Value> source_map_url = Local<Value>();
+  Local<Boolean> is_opaque = False(w->isolate);
+  Local<Boolean> is_wasm = False(w->isolate);
+  Local<Boolean> is_module = True(w->isolate);
+
+  ScriptOrigin origin(name, line_offset, column_offset, is_cross_origin,
+                      script_id, source_map_url, is_opaque, is_wasm, is_module);
+
+  ScriptCompiler::Source source(source_text, origin);
+  Local<Module> module;
+
+  if (!ScriptCompiler::CompileModule(w->isolate, &source).ToLocal(&module)) {
+    assert(try_catch.HasCaught());
+    w->last_exception = ExceptionString(w, &try_catch);
+    return 1;
+  }
+
+  Eternal<Module> persModule(w->isolate, module);
+  w->modules[name_s] = persModule;
+
+  Maybe<bool> ok = module->InstantiateModule(context, ResolveCallback);
+
+  if (!ok.FromMaybe(false)) {
+    // TODO: I'm not sure if this is needed
+    if (try_catch.HasCaught()) {
+      assert(try_catch.HasCaught());
+      w->last_exception = ExceptionString(w, &try_catch);
+    }
+    return 2;
+  }
+
+  MaybeLocal<Value> result = module->Evaluate(context);
+
+  if (result.IsEmpty()) {
+    assert(try_catch.HasCaught());
+    w->last_exception = ExceptionString(w, &try_catch);
+    return 2;
+  }
+
+  context->Exit();
+  // w->context.Reset(w->isolate, context);
+
+  return 0;
+}
+
 worker* worker_new(int table_index) {
   worker* w = new (worker);
 
@@ -438,23 +523,13 @@ worker* worker_new(int table_index) {
   w->isolate->SetData(0, w);
   w->table_index = table_index;
 
-  Local<ObjectTemplate> global = ObjectTemplate::New(w->isolate);
-  Local<ObjectTemplate> v8worker2 = ObjectTemplate::New(w->isolate);
+  std::string name = "internal.js";
+  const char *name_s = name.c_str();
+  std::string source = "const { print, send, recv } = V8Worker2; export { print, send, recv };";
+  const char *source_s = source.c_str();
 
-  global->Set(String::NewFromUtf8(w->isolate, "V8Worker2"), v8worker2);
-
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "print"),
-                 FunctionTemplate::New(w->isolate, Print));
-
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "recv"),
-                 FunctionTemplate::New(w->isolate, Recv));
-
-  v8worker2->Set(String::NewFromUtf8(w->isolate, "send"),
-                 FunctionTemplate::New(w->isolate, Send));
-
-  Local<Context> context = Context::New(w->isolate, NULL, global);
-  w->context.Reset(w->isolate, context);
-  context->Enter();
+  // TODO: How can we track and report errors in this?
+  make_core_module(w, name_s, source_s);
 
   return w;
 }

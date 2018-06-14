@@ -22,6 +22,7 @@ IN THE SOFTWARE.
 package v8worker2
 
 import (
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -225,8 +226,16 @@ func TestModules(t *testing.T) {
 	})
 	err2 := worker.LoadModule("code.js", `
 		import { test } from "dependency.js";
-		V8Worker2.print(test);
+		import { print } from "internal.js";
+		print(test);
+		V8Worker2.print("global fucked");
 	`, func(specifier string, referrer string) int {
+		// log.Println(specifier)
+		if specifier == "internal.js" {
+			return 0
+		}
+
+		log.Println(specifier)
 		if specifier != "dependency.js" {
 			t.Fatal(`Expected "dependency.js" specifier`)
 		}
