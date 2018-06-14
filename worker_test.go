@@ -22,7 +22,6 @@ IN THE SOFTWARE.
 package v8worker2
 
 import (
-	"log"
 	"strings"
 	"testing"
 	"time"
@@ -233,12 +232,11 @@ func TestModules(t *testing.T) {
 		if (typeof V8Worker2 != "undefined") {
 			throw new Error('Global should not exist');
 		}
-	`, func(specifier string, referrer string) int {
-		if specifier == "internal.js" {
+	`, func(specifier string, referrer string, isCached bool) int {
+		if specifier == "core:internal.js" {
 			return 0
 		}
 
-		log.Println(specifier)
 		if specifier != "dependency.js" {
 			t.Fatal(`Expected "dependency.js" specifier`)
 		}
@@ -247,7 +245,7 @@ func TestModules(t *testing.T) {
 		}
 		err1 := worker.LoadModule("dependency.js", `
 			export const test = "ready";
-		`, func(_, _ string) int {
+		`, func(_, _ string, _ bool) int {
 			t.Fatal(`Expected module resolver callback to not be called`)
 			return 1
 		})
@@ -255,6 +253,38 @@ func TestModules(t *testing.T) {
 			t.Fatal(err1)
 		}
 		return 0
+	})
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+}
+func TestCachedModule(t *testing.T) {
+	var worker *Worker
+	worker = New(func(msg []byte) []byte {
+		t.Fatal("shouldn't recieve Message")
+		return nil
+	})
+	err1 := worker.LoadModule("dependency.js", `
+		export const test = "ready";
+	`, func(_, _ string, _ bool) int {
+		t.Fatal(`Expected module resolver callback to not be called`)
+		return 1
+	})
+	if err1 != nil {
+		t.Fatal(err1)
+	}
+	err2 := worker.LoadModule("code.js", `
+		import { test } from "dependency.js";
+		import { print } from "core:internal.js";
+
+		print(test);
+	`, func(specifier string, referrer string, isCached bool) int {
+		if isCached == true {
+			return 0
+		}
+
+		t.Fatalf(`Expected "%s" to be cached`, specifier)
+		return 1
 	})
 	if err2 != nil {
 		t.Fatal(err2)
@@ -269,7 +299,7 @@ func TestModulesMissingDependency(t *testing.T) {
 	err := worker.LoadModule("code.js", `
 		import { test } from "missing.js";
 		throw new Error('Should not reach here');
-	`, func(specifier string, referrer string) int {
+	`, func(specifier string, referrer string, isCached bool) int {
 		if specifier != "missing.js" {
 			t.Fatal(`Expected "missing.js" specifier`)
 		}
@@ -286,13 +316,12 @@ func TestUnpriviledgedModule(t *testing.T) {
 	err := worker.LoadModule("code.js", `
 		import { print } from "core:internal.js";
 		throw new Error("Should not reach here");
-	`, func(specifier string, referrer string) int {
+	`, func(specifier string, referrer string, isCached bool) int {
 		if specifier != "core:internal.js" {
 			t.Fatal(`Expected "core:internal.js" specifier`)
 		}
 		return 1
 	})
-	log.Println(err)
 	errorContains(t, err, "core:internal.js")
 }
 

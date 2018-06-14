@@ -360,11 +360,9 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
     // If we've already loaded the module, skip resolving it.
     // TODO: Is there ever a time when the specifier would be the same
     // but would need to be resolved again?
-    if (w->modules.count(dependencySpecifier) != 0) {
-      continue;
-    }
+    bool isCached = (w->modules.count(dependencySpecifier) != 0);
 
-    int ret = ResolveModule(dependencySpecifier, name_s, callback_index);
+    int ret = ResolveModule(dependencySpecifier, name_s, isCached, callback_index);
     if (ret != 0) {
       // TODO: Use module->GetModuleRequestLocation() to get source locations
       std::string out;
