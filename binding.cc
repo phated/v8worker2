@@ -356,10 +356,6 @@ int worker_load_module(worker* w, char* name_s, char* source_s, int callback_ind
     Local<String> dependency = module->GetModuleRequest(i);
     String::Utf8Value str(dependency);
     char* dependencySpecifier = *str;
-
-    // If we've already loaded the module, skip resolving it.
-    // TODO: Is there ever a time when the specifier would be the same
-    // but would need to be resolved again?
     bool isCached = (w->modules.count(dependencySpecifier) != 0);
 
     int ret = ResolveModule(dependencySpecifier, name_s, isCached, callback_index);
